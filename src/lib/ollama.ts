@@ -45,17 +45,12 @@ export class OllamaService {
 
   static async testApiKey(apiKey: string): Promise<boolean> {
     try {
-      const response = await fetch(`${this.BASE_URL}/chat`, {
-        method: 'POST',
+      console.log('Testing API key with Ollama API');
+      const response = await fetch(`${this.BASE_URL}/tags`, {
+        method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+          'Authorization': apiKey,
         },
-        body: JSON.stringify({
-          model: 'gpt-oss:20b-cloud',
-          messages: [{ role: 'user', content: 'test' }],
-          stream: false
-        }),
       });
       return response.ok;
     } catch (error) {
@@ -73,7 +68,7 @@ export class OllamaService {
     const response = await fetch(`${this.BASE_URL}/web_search`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -102,7 +97,7 @@ export class OllamaService {
     const response = await fetch(`${this.BASE_URL}/chat`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

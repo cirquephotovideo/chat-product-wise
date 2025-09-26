@@ -152,7 +152,7 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
             </div>
             
             <div className="space-y-3">
-              <div className="text-sm text-muted-foreground">
+              <div className="text-sm text-foreground">
                 {formatResultData(tool.result.data)}
               </div>
               

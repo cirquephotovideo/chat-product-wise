@@ -6,11 +6,8 @@ import { ProductInput } from '@/components/ProductInput';
 import { AnalysisProgress } from '@/components/AnalysisProgress';
 import { ProductAnalysisCard } from '@/components/ProductAnalysisCard';
 import { ResultsExport } from '@/components/ResultsExport';
-import { EanReviewDialog, type EanReview, type EanCandidate } from '@/components/EanReviewDialog';
 import { ProductAnalyzer as ProductAnalyzerService, AnalysisResult, ProductData } from '@/lib/productAnalyzer';
 import { useToast } from '@/hooks/use-toast';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { Sparkles, Search, TrendingUp, Target, DollarSign, FileText, Wand2, Globe, MessageSquare } from 'lucide-react';
 
 export interface AnalysisTool {
@@ -105,19 +102,6 @@ const ProductAnalyzer = () => {
   const [tools, setTools] = useState<AnalysisTool[]>(ANALYSIS_TOOLS);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState('input');
-  
-  // EAN Review states
-  const [showEanReview, setShowEanReview] = useState(false);
-  const [eanReviews, setEanReviews] = useState<EanReview[]>([]);
-  const [eanCache, setEanCache] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('eanCache') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  const [strictEanMode, setStrictEanMode] = useState(true);
-  
   const { toast } = useToast();
 
   const handleProductsChange = (newProducts: ProductData[]) => {
@@ -134,32 +118,6 @@ const ProductAnalyzer = () => {
       return;
     }
 
-    // Check if there are EAN products that need review
-    const eanProducts = products.filter(p => p.type === 'ean');
-    
-    if (eanProducts.length > 0) {
-      // Check if all EANs are already in cache
-      const uncachedEans = eanProducts.filter(p => !eanCache[p.identifier]);
-      
-      if (uncachedEans.length > 0 || !strictEanMode) {
-        // Need EAN review
-        const reviews: EanReview[] = eanProducts.map(product => ({
-          ean: product.identifier,
-          originalName: product.name,
-          candidates: []
-        }));
-        
-        setEanReviews(reviews);
-        setShowEanReview(true);
-        return;
-      }
-    }
-
-    // Proceed with direct analysis (no EANs or all cached)
-    await startAnalysisWithProducts(products);
-  };
-
-  const startAnalysisWithProducts = async (productsToAnalyze: ProductData[]) => {
     setIsAnalyzing(true);
     setActiveTab('results');
     
@@ -168,7 +126,7 @@ const ProductAnalyzer = () => {
     
     toast({
       title: "🚀 Analyse lancée",
-      description: `Analyse de ${productsToAnalyze.length} produit(s) avec ${tools.length} outils.`,
+      description: `Analyse de ${products.length} produit(s) avec ${tools.length} outils.`,
     });
 
     try {
@@ -176,7 +134,7 @@ const ProductAnalyzer = () => {
       const results = new Map<string, AnalysisResult>();
       
       // Process each product
-      for (const product of productsToAnalyze) {
+      for (const product of products) {
         // Update tool status to running
         setTools(prev => prev.map(tool => ({ ...tool, status: 'running' as const })));
         
@@ -223,39 +181,6 @@ const ProductAnalyzer = () => {
     }
   };
 
-  const handleResolveEan = async (ean: string): Promise<EanCandidate[]> => {
-    const analyzer = new ProductAnalyzerService();
-    const candidates = await analyzer.resolveEANCandidates(ean);
-    
-    // Update the review with candidates
-    setEanReviews(prev => prev.map(review => 
-      review.ean === ean 
-        ? { ...review, candidates }
-        : review
-    ));
-    
-    return candidates;
-  };
-
-  const handleConfirmEanReviews = (confirmed: Record<string, string>) => {
-    // Update cache
-    const newCache = { ...eanCache, ...confirmed };
-    setEanCache(newCache);
-    localStorage.setItem('eanCache', JSON.stringify(newCache));
-
-    // Update product names with confirmed names
-    const updatedProducts = products.map(product => {
-      if (product.type === 'ean' && confirmed[product.identifier]) {
-        return { ...product, name: confirmed[product.identifier] };
-      }
-      return product;
-    });
-
-    // Start analysis with updated products
-    startAnalysisWithProducts(updatedProducts);
-    setShowEanReview(false);
-  };
-
   const handleStopAnalysis = () => {
     setIsAnalyzing(false);
     setTools(prev => prev.map(tool => 
@@ -276,37 +201,20 @@ const ProductAnalyzer = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8 text-center space-y-4">
-          <h1 className="text-4xl font-bold text-foreground tracking-tight">
-            Analyseur de Produits IA
-          </h1>
-          <p className="text-lg font-medium text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-            Analysez vos produits avec 9 outils d'intelligence artificielle avancés pour optimiser vos descriptions, prix et stratégie marketing en temps réel.
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Analyseur de Produits IA</h1>
+          <p className="text-muted-foreground">
+            Analysez vos produits avec 9 outils d'intelligence artificielle pour optimiser vos descriptions, prix et stratégie marketing.
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 h-14 bg-muted/40 rounded-lg p-1">
-            <TabsTrigger 
-              value="input" 
-              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-            >
-              📝 Saisie Produits
-            </TabsTrigger>
-            <TabsTrigger 
-              value="results" 
-              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-            >
-              📊 Résultats
-            </TabsTrigger>
-            <TabsTrigger 
-              value="export" 
-              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-            >
-              💾 Export
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="input">📝 Saisie Produits</TabsTrigger>
+            <TabsTrigger value="results">📊 Résultats</TabsTrigger>
+            <TabsTrigger value="export">💾 Export</TabsTrigger>
           </TabsList>
 
           <TabsContent value="input" className="mt-6">
@@ -323,18 +231,6 @@ const ProductAnalyzer = () => {
                   onChange={handleProductsChange}
                   disabled={isAnalyzing}
                 />
-                
-                {/* EAN Mode Toggle */}
-                <div className="flex items-center space-x-2 mt-4 p-3 bg-muted/30 rounded-lg">
-                  <Switch
-                    id="strict-ean"
-                    checked={strictEanMode}
-                    onCheckedChange={setStrictEanMode}
-                  />
-                  <Label htmlFor="strict-ean" className="text-sm">
-                    Mode EAN strict (validation des codes EAN avant analyse)
-                  </Label>
-                </div>
                 
                 <div className="flex gap-4 mt-6">
                   <Button 
@@ -391,15 +287,6 @@ const ProductAnalyzer = () => {
             />
           </TabsContent>
         </Tabs>
-        
-        {/* EAN Review Dialog */}
-        <EanReviewDialog
-          open={showEanReview}
-          onOpenChange={setShowEanReview}
-          eanReviews={eanReviews}
-          onConfirmAll={handleConfirmEanReviews}
-          onResolveEan={handleResolveEan}
-        />
       </div>
     </div>
   );

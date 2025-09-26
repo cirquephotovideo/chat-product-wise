@@ -43,7 +43,7 @@ const getStatusIcon = (status: AnalysisTool['status']) => {
 const getStatusColor = (status: AnalysisTool['status']) => {
   switch (status) {
     case 'completed':
-      return 'bg-green-50 border-green-200 dark:bg-green-900/10 dark:border-green-700';
+      return 'bg-card border-green-200 dark:bg-card dark:border-green-700';
     case 'running':
       return 'bg-blue-50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-700';
     case 'error':

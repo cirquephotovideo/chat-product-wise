@@ -21,11 +21,6 @@ import {
   Loader2
 } from 'lucide-react';
 import { AnalysisTool } from '@/pages/ProductAnalyzer';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 
 interface ProductAnalysisCardProps {
   tool: AnalysisTool;

@@ -15,7 +15,7 @@ export interface AnalysisTool {
   name: string;
   description: string;
   category: 'Analyse' | 'Génération' | 'Optimisation';
-  icon: React.ComponentType;
+  icon: React.ComponentType<{ className?: string }>;
   status: 'pending' | 'running' | 'completed' | 'error';
   result?: any;
   confidenceScore?: number;

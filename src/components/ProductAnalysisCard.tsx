@@ -85,7 +85,16 @@ const formatResultData = (result: any) => {
 };
 
 export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, onRetry }) => {
-  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [isExpanded, setIsExpanded] = React.useState(
+    tool.status === 'completed' && tool.result
+  );
+  
+  // Auto-expand when results arrive
+  React.useEffect(() => {
+    if (tool.status === 'completed' && tool.result) {
+      setIsExpanded(true);
+    }
+  }, [tool.status, tool.result]);
   
   const IconComponent = tool.icon;
   

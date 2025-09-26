@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { ChatSidebar } from '@/components/ChatSidebar';
@@ -7,7 +8,7 @@ import { OllamaService, OllamaModel, OllamaMessage, WebSearchResult } from '@/li
 import { useToast } from '@/components/ui/use-toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Bot, Search, Sparkles } from 'lucide-react';
+import { Bot, Search, Sparkles, Home, BarChart3 } from 'lucide-react';
 
 interface ChatMessageType {
   id: string;
@@ -329,6 +330,27 @@ export default function Chat() {
       />
 
       <div className="flex-1 flex flex-col">
+        {/* Navigation Header */}
+        <div className="border-b border-border bg-card">
+          <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Link to="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Home className="w-4 h-4" />
+                  Accueil
+                </Link>
+                <div className="text-sm text-muted-foreground">•</div>
+                <span className="text-sm font-medium">Chat IA</span>
+              </div>
+              <Link to="/analyzer">
+                <Button variant="outline" size="sm">
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Analyseur
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
         {!currentConversationId ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-md">

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,7 +9,7 @@ import { ProductAnalysisCard } from '@/components/ProductAnalysisCard';
 import { ResultsExport } from '@/components/ResultsExport';
 import { ProductAnalyzer as ProductAnalyzerService, AnalysisResult, ProductData } from '@/lib/productAnalyzer';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, Search, TrendingUp, Target, DollarSign, FileText, Wand2, Globe, MessageSquare } from 'lucide-react';
+import { Sparkles, Search, TrendingUp, Target, DollarSign, FileText, Wand2, Globe, MessageSquare, Home, Bot } from 'lucide-react';
 
 export interface AnalysisTool {
   id: string;
@@ -201,8 +202,30 @@ const ProductAnalyzer = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-background">
+      {/* Navigation Header */}
+      <div className="border-b border-border bg-card">
+        <div className="max-w-7xl mx-auto px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link to="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Home className="w-4 h-4" />
+                Accueil
+              </Link>
+              <div className="text-sm text-muted-foreground">•</div>
+              <span className="text-sm font-medium">Analyseur de Produits</span>
+            </div>
+            <Link to="/chat">
+              <Button variant="outline" size="sm">
+                <Bot className="w-4 h-4 mr-2" />
+                Chat IA
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto p-6">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Analyseur de Produits IA</h1>
           <p className="text-muted-foreground">

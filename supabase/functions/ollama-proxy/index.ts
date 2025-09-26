@@ -44,23 +44,46 @@ serve(async (req) => {
         throw new Error('No response body for streaming');
       }
 
-      const stream = new ReadableStream({
-        start(controller) {
-          function pump(): Promise<void> {
-            return reader!.read().then(({ done, value }) => {
-              if (done) {
-                controller.close();
-                return;
-              }
-              controller.enqueue(value);
-              return pump();
-            });
-          }
-          return pump();
-        }
-      });
+      let fullContent = '';
+      const decoder = new TextDecoder();
 
-      return new Response(stream, {
+      // Read the entire stream first
+      const chunks: string[] = [];
+      let done = false;
+      
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        done = streamDone;
+        
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done });
+          chunks.push(chunk);
+        }
+      }
+
+      // Process all chunks to extract the final content
+      const fullText = chunks.join('');
+      const lines = fullText.split('\n').filter(line => line.trim());
+      
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.message && parsed.message.content && parsed.message.content.trim()) {
+            fullContent += parsed.message.content;
+          }
+          
+          // If we hit the final message, break
+          if (parsed.done) {
+            break;
+          }
+        } catch (e) {
+          // Skip malformed JSON lines
+          continue;
+        }
+      }
+
+      // Return the accumulated content as a simple string
+      return new Response(fullContent, {
         headers: {
           ...corsHeaders,
           'Content-Type': 'text/plain',

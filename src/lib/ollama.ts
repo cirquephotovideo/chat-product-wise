@@ -135,8 +135,7 @@ export class OllamaService {
       throw new Error(`Chat request failed: ${response.error.message}`);
     }
 
-    // For streaming responses, we need to handle the data differently
-    // Since the proxy returns the full response, we'll simulate streaming
+    // The proxy now returns the complete content directly
     const fullResponse = response.data || '';
     
     if (onChunk && fullResponse) {
@@ -146,7 +145,7 @@ export class OllamaService {
         const chunk = words[i] + (i < words.length - 1 ? ' ' : '');
         onChunk(chunk);
         // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 30));
       }
     }
 

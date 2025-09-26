@@ -201,20 +201,37 @@ const ProductAnalyzer = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Analyseur de Produits IA</h1>
-          <p className="text-muted-foreground">
-            Analysez vos produits avec 9 outils d'intelligence artificielle pour optimiser vos descriptions, prix et stratégie marketing.
+        <div className="mb-8 text-center space-y-4">
+          <h1 className="text-4xl font-bold text-foreground tracking-tight">
+            Analyseur de Produits IA
+          </h1>
+          <p className="text-lg font-medium text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+            Analysez vos produits avec 9 outils d'intelligence artificielle avancés pour optimiser vos descriptions, prix et stratégie marketing en temps réel.
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="input">📝 Saisie Produits</TabsTrigger>
-            <TabsTrigger value="results">📊 Résultats</TabsTrigger>
-            <TabsTrigger value="export">💾 Export</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 h-14 bg-muted/40 rounded-lg p-1">
+            <TabsTrigger 
+              value="input" 
+              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+            >
+              📝 Saisie Produits
+            </TabsTrigger>
+            <TabsTrigger 
+              value="results" 
+              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+            >
+              📊 Résultats
+            </TabsTrigger>
+            <TabsTrigger 
+              value="export" 
+              className="text-base font-semibold h-12 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+            >
+              💾 Export
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="input" className="mt-6">

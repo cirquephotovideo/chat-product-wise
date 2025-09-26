@@ -43,26 +43,26 @@ const getStatusIcon = (status: AnalysisTool['status']) => {
 const getStatusColor = (status: AnalysisTool['status']) => {
   switch (status) {
     case 'completed':
-      return 'bg-green-100 border-green-200 dark:bg-green-900/20 dark:border-green-800';
+      return 'bg-green-50 border-green-200 dark:bg-green-900/10 dark:border-green-700';
     case 'running':
-      return 'bg-blue-100 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800';
+      return 'bg-blue-50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-700';
     case 'error':
-      return 'bg-red-100 border-red-200 dark:bg-red-900/20 dark:border-red-800';
+      return 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-700';
     default:
-      return 'bg-muted/20 border-muted';
+      return 'bg-card border-border';
   }
 };
 
 const getCategoryBadgeColor = (category: AnalysisTool['category']) => {
   switch (category) {
     case 'Analyse':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
+      return 'bg-blue-600 text-white dark:bg-blue-700 dark:text-white border-none';
     case 'Génération':
-      return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+      return 'bg-purple-600 text-white dark:bg-purple-700 dark:text-white border-none';
     case 'Optimisation':
-      return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
+      return 'bg-orange-600 text-white dark:bg-orange-700 dark:text-white border-none';
     default:
-      return 'bg-muted text-muted-foreground';
+      return 'bg-gray-600 text-white dark:bg-gray-700 dark:text-white border-none';
   }
 };
 
@@ -107,7 +107,7 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
                   {tool.category}
                 </Badge>
                 {tool.confidenceScore && (
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline" className="text-xs border-gray-300 text-foreground bg-white">
                     {Math.round(tool.confidenceScore * 100)}% confiance
                   </Badge>
                 )}
@@ -119,7 +119,7 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
           </div>
         </div>
         
-        <CardDescription className="text-sm text-muted-foreground mt-2">
+        <CardDescription className="text-sm text-foreground/70 mt-2 font-medium">
           {tool.description}
         </CardDescription>
       </CardHeader>
@@ -128,23 +128,23 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
         {tool.status === 'running' && (
           <div className="space-y-3">
             <Progress value={undefined} className="h-2" />
-            <p className="text-sm text-muted-foreground">Analyse en cours...</p>
+            <p className="text-sm text-foreground">Analyse en cours...</p>
           </div>
         )}
 
         {tool.status === 'completed' && tool.result && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Badge variant="default" className="text-xs bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400">
+              <Badge className="text-xs bg-green-600 text-white border-none font-semibold px-3 py-1">
                 ✅ Terminé
               </Badge>
               {tool.confidenceScore && (
                 <div className="flex items-center gap-2">
                   <Progress 
                     value={tool.confidenceScore * 100} 
-                    className="h-2 w-20"
+                    className="h-3 w-24"
                   />
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-sm font-bold text-foreground">
                     {Math.round(tool.confidenceScore * 100)}%
                   </span>
                 </div>
@@ -152,14 +152,14 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
             </div>
             
             <div className="space-y-3">
-              <div className="text-sm text-foreground">
+              <div className="text-sm text-foreground font-medium bg-card p-3 rounded-lg border">
                 {formatResultData(tool.result.data)}
               </div>
               
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="mt-2 h-8 p-2"
+                className="mt-2 h-8 p-2 text-foreground hover:bg-muted"
                 onClick={() => setIsExpanded(!isExpanded)}
               >
                 <Eye className="h-3 w-3 mr-1" />
@@ -167,8 +167,8 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
               </Button>
               
               {isExpanded && (
-                <div className="mt-3 bg-muted/30 p-3 rounded-lg">
-                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+                <div className="mt-3 bg-card p-4 rounded-lg border">
+                  <pre className="text-xs text-foreground whitespace-pre-wrap overflow-x-auto font-mono">
                     {JSON.stringify(tool.result.data, null, 2)}
                   </pre>
                 </div>
@@ -179,17 +179,17 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
 
         {tool.status === 'error' && (
           <div className="space-y-3">
-            <Badge variant="destructive" className="text-xs">
+            <Badge variant="destructive" className="text-xs bg-red-600 text-white border-none font-semibold">
               ❌ Erreur
             </Badge>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-foreground">
               Une erreur est survenue lors de l'analyse. 
             </p>
             <Button 
               variant="outline" 
               size="sm" 
               onClick={onRetry}
-              className="h-8"
+              className="h-8 border-red-300 text-red-700 hover:bg-red-50"
             >
               <RotateCcw className="h-3 w-3 mr-1" />
               Réessayer
@@ -199,10 +199,10 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
 
         {tool.status === 'pending' && (
           <div className="space-y-3">
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs bg-gray-600 text-white border-none font-semibold">
               ⏳ En attente
             </Badge>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-foreground/70">
               En attente du démarrage de l'analyse.
             </p>
           </div>

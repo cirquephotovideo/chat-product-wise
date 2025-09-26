@@ -48,22 +48,40 @@ export class ProductAnalyzer {
       createdAt: new Date()
     };
 
-    // First, perform web search to get product context
+    // Enhanced web search with EAN validation
     let webSearchResults: any[] = [];
+    let eanValidation: any = null;
+    
     try {
-      const searchQuery = `${product.name} ${product.type === 'ean' ? 'EAN ' + product.identifier : ''} prix caractéristiques`;
-      const searchResponse = await OllamaService.webSearch(searchQuery, 5);
-      webSearchResults = searchResponse.results || [];
+      if (product.type === 'ean') {
+        // Step 1: EAN-specific search using specialized sources
+        eanValidation = await this.performEANValidation(product.identifier);
+        
+        // Step 2: Enhanced search with validated product info
+        webSearchResults = await this.performEnhancedProductSearch(product, eanValidation);
+      } else {
+        // Standard product name search
+        const searchQuery = `"${product.name}" prix caractéristiques spécifications`;
+        const searchResponse = await OllamaService.webSearch(searchQuery, 5);
+        webSearchResults = searchResponse.results || [];
+      }
     } catch (error) {
       console.error('Web search failed:', error);
     }
 
-    // Run all analysis tools in parallel
+    // Run all analysis tools in parallel with enhanced context
+    const enhancedContext = {
+      webSearchResults,
+      eanValidation,
+      productValidation: product.type === 'ean' && eanValidation ? 
+        this.validateProductEANCoherence(product, eanValidation) : null
+    };
+
     const toolPromises = this.ANALYSIS_TOOLS.map(async (toolId) => {
       if (onProgress) onProgress(toolId, 'running');
       
       try {
-        const toolResult = await this.runAnalysisTool(toolId, product, webSearchResults);
+        const toolResult = await this.runAnalysisTool(toolId, product, enhancedContext);
         
         result.tools[toolId] = {
           status: 'completed',
@@ -91,52 +109,75 @@ export class ProductAnalyzer {
     return result;
   }
 
-  private async runAnalysisTool(toolId: string, product: ProductData, webContext: any[]): Promise<any> {
-    const contextString = webContext.map(r => `${r.title}: ${r.content}`).join('\n\n');
+  private async runAnalysisTool(toolId: string, product: ProductData, enhancedContext: any): Promise<any> {
+    const { webSearchResults, eanValidation, productValidation } = enhancedContext;
+    const contextString = webSearchResults?.map(r => `${r.title}: ${r.content}`).join('\n\n') || '';
+    
+    // Enhanced context with EAN validation info
+    const fullContext = {
+      webSearchResults: contextString,
+      eanValidation,
+      productValidation,
+      isEANProduct: product.type === 'ean'
+    };
     
     switch (toolId) {
       case 'categorizer':
-        return this.categorizerTool(product, contextString);
+        return this.categorizerTool(product, fullContext);
       
       case 'competitor':
-        return this.competitorTool(product, contextString);
+        return this.competitorTool(product, fullContext);
       
       case 'seo_optimizer':
-        return this.seoOptimizerTool(product, contextString);
+        return this.seoOptimizerTool(product, fullContext);
       
       case 'trends':
-        return this.trendsTool(product, contextString);
+        return this.trendsTool(product, fullContext);
       
       case 'price_optimizer':
-        return this.priceOptimizerTool(product, contextString);
+        return this.priceOptimizerTool(product, fullContext);
       
       case 'content_enhancer':
-        return this.contentEnhancerTool(product, contextString);
+        return this.contentEnhancerTool(product, fullContext);
       
       case 'description_generator':
-        return this.descriptionGeneratorTool(product, contextString);
+        return this.descriptionGeneratorTool(product, fullContext);
       
       case 'seo_generator':
-        return this.seoGeneratorTool(product, contextString);
+        return this.seoGeneratorTool(product, fullContext);
       
       case 'marketing_generator':
-        return this.marketingGeneratorTool(product, contextString);
+        return this.marketingGeneratorTool(product, fullContext);
       
       default:
         throw new Error(`Unknown tool: ${toolId}`);
     }
   }
 
-  private async categorizerTool(product: ProductData, context: string): Promise<any> {
-    const prompt = `Analysez ce produit et déterminez sa catégorie précise, ses tags pertinents et ses caractéristiques principales.
+  private async categorizerTool(product: ProductData, context: any): Promise<any> {
+    const eanInfo = context.eanValidation ? 
+      `\n\nINFORMATIONS EAN VALIDÉES (PRIORITAIRES):
+Code EAN: ${product.identifier}
+Nom réel du produit: ${context.eanValidation.realProductName || 'Non trouvé'}
+Catégorie EAN: ${context.eanValidation.category || 'Non trouvée'}
+Marque EAN: ${context.eanValidation.brand || 'Non trouvée'}
+IMPORTANT: Ces informations EAN sont prioritaires sur le nom fourni par l'utilisateur.` : '';
 
-Produit: ${product.name}
-${product.type === 'ean' ? `Code EAN: ${product.identifier}` : ''}
+    const validationWarning = context.productValidation && !context.productValidation.isCoherent ?
+      `\n\nATTENTION: Incohérence détectée entre le nom fourni "${product.name}" et le nom EAN "${context.eanValidation?.realProductName}". Utilisez les données EAN comme référence.` : '';
 
-Contexte web:
-${context}
+    const prompt = `Analysez ce produit et déterminez sa catégorie précise, ses tags pertinants et ses caractéristiques principales.
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+Nom fourni: ${product.name}
+${product.type === 'ean' ? `Code EAN: ${product.identifier}` : ''}${eanInfo}${validationWarning}
+
+Contexte web recherche:
+${context.webSearchResults}
+
+IMPORTANT: 
+- Si c'est un produit EAN, les informations EAN validées sont PRIORITAIRES
+- Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+- Utilisez le nom réel du produit basé sur l'EAN si disponible
 
 Exemple de format attendu:
 {
@@ -145,17 +186,22 @@ Exemple de format attendu:
   "tags": ["tag1", "tag2", "tag3"],
   "characteristics": ["carac1", "carac2"],
   "brand": "marque si identifiée",
+  "real_product_name": "nom réel si différent du nom fourni",
+  "ean_coherence": true/false,
   "confidence_score": 0.85
 }`;
 
     return await this.executeToolWithRetry(prompt, 'categorizer', 0.85);
   }
 
-  private async competitorTool(product: ProductData, context: string): Promise<any> {
+  private async competitorTool(product: ProductData, context: any): Promise<any> {
+    const eanInfo = context.eanValidation ? 
+      `\nInformations EAN validées: ${context.eanValidation.realProductName || product.name}` : '';
+
     const prompt = `Analysez la concurrence de ce produit en identifiant les concurrents directs, leurs prix et leurs avantages.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${context.eanValidation?.realProductName || product.name}${eanInfo}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -177,11 +223,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'competitor', 0.75);
   }
 
-  private async seoOptimizerTool(product: ProductData, context: string): Promise<any> {
+  private async seoOptimizerTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Optimisez le SEO de ce produit en proposant des mots-clés, méta-descriptions et titres optimisés.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -198,11 +246,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'seo_optimizer', 0.9);
   }
 
-  private async trendsTool(product: ProductData, context: string): Promise<any> {
+  private async trendsTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Analysez les tendances du marché pour ce produit et prédisez sa popularité.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -219,11 +269,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'trends', 0.7);
   }
 
-  private async priceOptimizerTool(product: ProductData, context: string): Promise<any> {
+  private async priceOptimizerTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Analysez les prix du marché et suggérez une stratégie de prix optimale.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -240,11 +292,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'price_optimizer', 0.8);
   }
 
-  private async contentEnhancerTool(product: ProductData, context: string): Promise<any> {
+  private async contentEnhancerTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Enrichissez le contenu de ce produit avec des détails pertinents et des spécifications techniques.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -261,11 +315,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'content_enhancer', 0.85);
   }
 
-  private async descriptionGeneratorTool(product: ProductData, context: string): Promise<any> {
+  private async descriptionGeneratorTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Générez une description détaillée et attractive pour ce produit.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -281,11 +337,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'description_generator', 0.9);
   }
 
-  private async seoGeneratorTool(product: ProductData, context: string): Promise<any> {
+  private async seoGeneratorTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Générez du contenu SEO optimisé pour ce produit incluant FAQ et contenu structuré.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -301,11 +359,13 @@ Exemple de format attendu:
     return await this.executeToolWithRetry(prompt, 'seo_generator', 0.85);
   }
 
-  private async marketingGeneratorTool(product: ProductData, context: string): Promise<any> {
+  private async marketingGeneratorTool(product: ProductData, context: any): Promise<any> {
+    const realName = context.eanValidation?.realProductName || product.name;
+    
     const prompt = `Créez du contenu marketing persuasif pour ce produit.
 
-Produit: ${product.name}
-Contexte: ${context}
+Produit: ${realName}
+Contexte: ${context.webSearchResults}
 
 IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
 
@@ -369,7 +429,103 @@ Exemple de format attendu:
       'marketing_generator': 'Générateur Marketing'
     };
     
-    return toolNames[toolId] || toolId;
+      return toolNames[toolId] || toolId;
+  }
+
+  // New methods for enhanced EAN handling
+  private async performEANValidation(eanCode: string): Promise<any> {
+    try {
+      console.log(`[EAN Validation] Starting for EAN: ${eanCode}`);
+      
+      // Step 1: Search specialized EAN databases
+      const eanSpecificQuery = `"${eanCode}" site:eandata.com OR site:barcodelookup.com OR site:openfoodfacts.org OR site:upcitemdb.com`;
+      const eanResponse = await OllamaService.webSearch(eanSpecificQuery, 3);
+      
+      // Step 2: Extract real product information from EAN results
+      if (eanResponse.results && eanResponse.results.length > 0) {
+        const eanContext = eanResponse.results.map(r => `${r.title}: ${r.content}`).join('\n\n');
+        
+        const extractionPrompt = `Extrayez les informations précises du produit à partir des données EAN spécialisées.
+
+Code EAN: ${eanCode}
+
+Données des bases EAN spécialisées:
+${eanContext}
+
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide contenant les informations réelles du produit.
+
+{
+  "realProductName": "nom exact du produit selon l'EAN",
+  "brand": "marque exacte",
+  "category": "catégorie selon EAN", 
+  "description": "description courte",
+  "specifications": ["spec1", "spec2"],
+  "confidence_score": 0.9,
+  "source": "source de l'information"
+}`;
+
+        const validation = await this.executeToolWithRetry(extractionPrompt, 'ean_validation', 0.9);
+        console.log(`[EAN Validation] Success:`, validation.data);
+        return validation.data;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[EAN Validation] Failed:', error);
+      return null;
+    }
+  }
+
+  private async performEnhancedProductSearch(product: ProductData, eanValidation: any): Promise<any[]> {
+    try {
+      const realProductName = eanValidation?.realProductName || product.name;
+      const brand = eanValidation?.brand;
+      
+      // Enhanced search query using real product info from EAN
+      const enhancedQuery = brand ? 
+        `"${realProductName}" "${brand}" prix spécifications -${product.name}` :
+        `"${realProductName}" "${product.identifier}" prix caractéristiques`;
+      
+      console.log(`[Enhanced Search] Query: ${enhancedQuery}`);
+      const searchResponse = await OllamaService.webSearch(enhancedQuery, 5);
+      
+      return searchResponse.results || [];
+    } catch (error) {
+      console.error('[Enhanced Search] Failed:', error);
+      return [];
+    }
+  }
+
+  private validateProductEANCoherence(product: ProductData, eanValidation: any): any {
+    if (!eanValidation || !eanValidation.realProductName) {
+      return { isCoherent: false, reason: 'No EAN validation data' };
+    }
+
+    const providedName = product.name.toLowerCase();
+    const realName = eanValidation.realProductName.toLowerCase();
+    
+    // Simple coherence check - can be enhanced with fuzzy matching
+    const similarity = this.calculateStringSimilarity(providedName, realName);
+    const isCoherent = similarity > 0.6; // 60% similarity threshold
+    
+    return {
+      isCoherent,
+      similarity,
+      providedName: product.name,
+      realName: eanValidation.realProductName,
+      reason: isCoherent ? 'Names are coherent' : `Names too different: "${product.name}" vs "${eanValidation.realProductName}"`
+    };
+  }
+
+  private calculateStringSimilarity(str1: string, str2: string): number {
+    // Simple Jaccard similarity based on words
+    const words1 = new Set(str1.split(/\s+/));
+    const words2 = new Set(str2.split(/\s+/));
+    
+    const intersection = new Set([...words1].filter(word => words2.has(word)));
+    const union = new Set([...words1, ...words2]);
+    
+    return intersection.size / union.size;
   }
 
   private async executeToolWithRetry(prompt: string, toolId: string, defaultConfidence: number, maxRetries: number = 3): Promise<any> {

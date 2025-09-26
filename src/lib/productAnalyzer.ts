@@ -291,8 +291,8 @@ export class ProductAnalyzer {
         
         onProgress?.(toolId, 'completed', toolResult);
         
-        // Save individual tool result to database (disabled for now)
-        // await this.saveToolResult(toolId, product, toolResult);
+        // Save individual tool result to database
+        await this.saveToolResult(toolId, product, toolResult);
         
       } catch (error) {
         console.error(`Tool ${toolId} failed:`, error);
@@ -655,15 +655,20 @@ Generate marketing content in JSON format:
   private async saveToolResult(toolId: string, product: ProductData, result: any): Promise<void> {
     try {
       await supabase
-        .from('analysis_results')
+        .from('magic_tools_results')
         .insert({
-          product_identifier: product.identifier,
+          user_id: (await supabase.auth.getUser()).data.user?.id,
           product_name: product.name,
-          tool_name: toolId,
-          tool_display_name: this.getToolName(toolId),
+          tool_id: toolId,
+          tool_name: this.getToolName(toolId),
           result_data: result,
           confidence_score: result.confidence_score || 0,
-          created_at: new Date().toISOString()
+          status: 'completed',
+          metadata: {
+            product_identifier: product.identifier,
+            product_type: product.type,
+            analysis_timestamp: new Date().toISOString()
+          }
         });
       
       console.log(`Saved ${toolId} result for ${product.identifier}`);

@@ -136,24 +136,19 @@ ${product.type === 'ean' ? `Code EAN: ${product.identifier}` : ''}
 Contexte web:
 ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "category": "catégorie principale",
-  "subcategory": "sous-catégorie",
+  "subcategory": "sous-catégorie", 
   "tags": ["tag1", "tag2", "tag3"],
   "characteristics": ["carac1", "carac2"],
   "brand": "marque si identifiée",
   "confidence_score": 0.85
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.85
-    };
+    return await this.executeToolWithRetry(prompt, 'categorizer', 0.85);
   }
 
   private async competitorTool(product: ProductData, context: string): Promise<any> {
@@ -162,11 +157,13 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "competitors": [
     {
-      "name": "concurrent 1",
+      "name": "concurrent 1", 
       "price": "prix si trouvé",
       "advantages": ["avantage 1", "avantage 2"],
       "url": "url si disponible"
@@ -177,14 +174,7 @@ Répondez au format JSON:
   "confidence_score": 0.75
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.75
-    };
+    return await this.executeToolWithRetry(prompt, 'competitor', 0.75);
   }
 
   private async seoOptimizerTool(product: ProductData, context: string): Promise<any> {
@@ -193,24 +183,19 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "title_seo": "titre optimisé SEO (max 60 chars)",
-  "meta_description": "méta description (max 160 chars)",
+  "meta_description": "méta description (max 160 chars)", 
   "keywords": ["mot-clé1", "mot-clé2"],
   "h1_suggestion": "titre H1 optimisé",
   "url_slug": "url-optimise-seo",
   "confidence_score": 0.9
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.9
-    };
+    return await this.executeToolWithRetry(prompt, 'seo_optimizer', 0.9);
   }
 
   private async trendsTool(product: ProductData, context: string): Promise<any> {
@@ -219,24 +204,19 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "trend_score": 0.8,
-  "trend_direction": "croissante|stable|décroissante",
+  "trend_direction": "croissante",
   "seasonal_factors": ["facteur1", "facteur2"],
-  "popularity_prediction": "prédiction sur 6 mois",
+  "popularity_prediction": "prédiction sur 6 mois", 
   "trending_keywords": ["tendance1", "tendance2"],
   "confidence_score": 0.7
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.7
-    };
+    return await this.executeToolWithRetry(prompt, 'trends', 0.7);
   }
 
   private async priceOptimizerTool(product: ProductData, context: string): Promise<any> {
@@ -245,24 +225,19 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
-  "suggested_price_range": {"min": 0, "max": 0},
-  "market_average": 0,
+  "suggested_price_range": {"min": 10, "max": 100},
+  "market_average": 50,
   "pricing_strategy": "stratégie recommandée",
   "margin_recommendations": "recommandations de marge",
-  "competitor_prices": [{"name": "concurrent", "price": 0}],
+  "competitor_prices": [{"name": "concurrent", "price": 45}],
   "confidence_score": 0.8
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.8
-    };
+    return await this.executeToolWithRetry(prompt, 'price_optimizer', 0.8);
   }
 
   private async contentEnhancerTool(product: ProductData, context: string): Promise<any> {
@@ -271,7 +246,9 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "enhanced_features": ["fonctionnalité 1", "fonctionnalité 2"],
   "technical_specs": {"spec1": "valeur1", "spec2": "valeur2"},
@@ -281,14 +258,7 @@ Répondez au format JSON:
   "confidence_score": 0.85
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.85
-    };
+    return await this.executeToolWithRetry(prompt, 'content_enhancer', 0.85);
   }
 
   private async descriptionGeneratorTool(product: ProductData, context: string): Promise<any> {
@@ -297,7 +267,9 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "short_description": "description courte (1-2 phrases)",
   "long_description": "description détaillée (plusieurs paragraphes)",
@@ -306,14 +278,7 @@ Répondez au format JSON:
   "confidence_score": 0.9
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.9
-    };
+    return await this.executeToolWithRetry(prompt, 'description_generator', 0.9);
   }
 
   private async seoGeneratorTool(product: ProductData, context: string): Promise<any> {
@@ -322,7 +287,9 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "faq": [{"question": "Q1", "answer": "R1"}],
   "structured_data": {"@type": "Product", "name": "nom", "description": "desc"},
@@ -331,14 +298,7 @@ Répondez au format JSON:
   "confidence_score": 0.85
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.85
-    };
+    return await this.executeToolWithRetry(prompt, 'seo_generator', 0.85);
   }
 
   private async marketingGeneratorTool(product: ProductData, context: string): Promise<any> {
@@ -347,7 +307,9 @@ Répondez au format JSON:
 Produit: ${product.name}
 Contexte: ${context}
 
-Répondez au format JSON:
+IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
+
+Exemple de format attendu:
 {
   "headline": "titre accrocheur",
   "value_propositions": ["proposition 1", "proposition 2"],
@@ -358,14 +320,7 @@ Répondez au format JSON:
   "confidence_score": 0.8
 }`;
 
-    const response = await OllamaService.chat('gpt-oss:20b-cloud', [
-      { role: 'user', content: prompt }
-    ]);
-
-    return {
-      data: JSON.parse(response),
-      confidence_score: 0.8
-    };
+    return await this.executeToolWithRetry(prompt, 'marketing_generator', 0.8);
   }
 
   private async saveToolResult(toolId: string, product: ProductData, result: any): Promise<void> {
@@ -415,5 +370,157 @@ Répondez au format JSON:
     };
     
     return toolNames[toolId] || toolId;
+  }
+
+  private async executeToolWithRetry(prompt: string, toolId: string, defaultConfidence: number, maxRetries: number = 3): Promise<any> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[${toolId}] Attempt ${attempt}/${maxRetries}`);
+        
+        // Use a more reliable model for better consistency
+        const response = await OllamaService.chat('deepseek-v3.1:671b-cloud', [
+          { 
+            role: 'system', 
+            content: 'Vous êtes un assistant spécialisé en analyse de produits. Répondez TOUJOURS et UNIQUEMENT avec du JSON valide, sans aucun texte additionnel.' 
+          },
+          { role: 'user', content: prompt }
+        ]);
+
+        console.log(`[${toolId}] Raw response:`, response.substring(0, 200) + '...');
+        
+        // Clean and validate JSON response
+        const cleanedResponse = this.cleanJsonResponse(response);
+        console.log(`[${toolId}] Cleaned response:`, cleanedResponse.substring(0, 200) + '...');
+        
+        const parsedData = this.parseJsonSafely(cleanedResponse);
+        
+        if (!parsedData) {
+          throw new Error(`Failed to parse JSON for ${toolId}`);
+        }
+
+        // Validate required structure
+        if (!this.validateToolResponse(parsedData, toolId)) {
+          throw new Error(`Invalid response structure for ${toolId}`);
+        }
+
+        console.log(`[${toolId}] Success on attempt ${attempt}`);
+        return {
+          data: parsedData,
+          confidence_score: parsedData.confidence_score || defaultConfidence
+        };
+
+      } catch (error) {
+        console.error(`[${toolId}] Attempt ${attempt} failed:`, error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt < maxRetries) {
+          // Wait before retry with exponential backoff
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`[${toolId}] Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    // All retries failed, return fallback response
+    console.error(`[${toolId}] All retries failed, using fallback`);
+    return this.getFallbackResponse(toolId, defaultConfidence);
+  }
+
+  private cleanJsonResponse(response: string): string {
+    // Remove markdown code blocks
+    let cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
+    // Remove any text before the first {
+    const firstBrace = cleaned.indexOf('{');
+    if (firstBrace > 0) {
+      cleaned = cleaned.substring(firstBrace);
+    }
+    
+    // Remove any text after the last }
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace > -1 && lastBrace < cleaned.length - 1) {
+      cleaned = cleaned.substring(0, lastBrace + 1);
+    }
+    
+    // Remove common prefixes
+    cleaned = cleaned.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
+    
+    return cleaned.trim();
+  }
+
+  private parseJsonSafely(jsonString: string): any | null {
+    try {
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.error('JSON parsing failed:', error);
+      
+      // Try to fix common JSON issues
+      try {
+        // Fix unescaped quotes in strings
+        let fixed = jsonString.replace(/": "([^"]*)"([^",}\]])/g, '": "$1\\"$2');
+        fixed = fixed.replace(/": "([^"]*)"/g, (match, content) => {
+          return '": "' + content.replace(/"/g, '\\"') + '"';
+        });
+        
+        return JSON.parse(fixed);
+      } catch (secondError) {
+        console.error('JSON fix attempt failed:', secondError);
+        return null;
+      }
+    }
+  }
+
+  private validateToolResponse(data: any, toolId: string): boolean {
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+
+    // Basic validation - ensure it's an object and has some content
+    const keys = Object.keys(data);
+    return keys.length > 0;
+  }
+
+  private getFallbackResponse(toolId: string, confidence: number): any {
+    const fallbackResponses: { [key: string]: any } = {
+      'categorizer': {
+        data: {
+          category: 'Produit général',
+          subcategory: 'Non classifié',
+          tags: ['produit', 'général'],
+          characteristics: ['À analyser'],
+          brand: 'Non identifiée',
+          confidence_score: 0.3
+        },
+        confidence_score: 0.3
+      },
+      'competitor': {
+        data: {
+          competitors: [],
+          market_position: 'À analyser',
+          price_range: { min: 0, max: 0 },
+          confidence_score: 0.3
+        },
+        confidence_score: 0.3
+      },
+      'seo_optimizer': {
+        data: {
+          title_seo: 'Titre à optimiser',
+          meta_description: 'Description à optimiser',
+          keywords: ['produit'],
+          h1_suggestion: 'Titre H1 à optimiser',
+          url_slug: 'produit-a-optimiser',
+          confidence_score: 0.3
+        },
+        confidence_score: 0.3
+      }
+    };
+
+    return fallbackResponses[toolId] || {
+      data: { error: 'Analyse indisponible', confidence_score: 0.1 },
+      confidence_score: 0.1
+    };
   }
 }

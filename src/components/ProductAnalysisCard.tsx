@@ -116,7 +116,7 @@ export const ProductAnalysisCard: React.FC<ProductAnalysisCardProps> = ({ tool, 
                   {tool.category}
                 </Badge>
                 {tool.confidenceScore && (
-                  <Badge variant="outline" className="text-xs border-gray-300 text-foreground bg-white">
+                  <Badge variant="outline" className="text-xs border-gray-400 text-gray-800 bg-gray-100 dark:border-gray-600 dark:text-gray-100 dark:bg-gray-800">
                     {Math.round(tool.confidenceScore * 100)}% confiance
                   </Badge>
                 )}

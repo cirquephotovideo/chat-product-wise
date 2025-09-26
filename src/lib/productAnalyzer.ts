@@ -1,531 +1,690 @@
-import { supabase } from '@/integrations/supabase/client';
 import { OllamaService } from './ollama';
+import { supabase } from '@/integrations/supabase/client';
+
+export interface EanCandidate {
+  name: string;
+  brand?: string;
+  category?: string;
+  sourceUrl: string;
+  sourceDomain: string;
+  matchedOnPage: boolean;
+  score: number;
+}
 
 export interface ProductData {
   identifier: string; // EAN code or product name
   name: string;
-  type: 'ean' | 'name';
+  type: 'name' | 'ean';
 }
 
 export interface AnalysisResult {
   productId: string;
-  tools: {
-    [toolId: string]: {
-      status: 'completed' | 'error';
-      data?: any;
-      error?: string;
-      confidence_score?: number;
-    };
-  };
-  createdAt: Date;
+  tools: Record<string, ToolProgress>;
+  createdAt: string;
 }
 
 export interface ToolProgress {
-  toolId: string;
   status: 'pending' | 'running' | 'completed' | 'error';
-  result?: any;
+  data?: any;
 }
 
-export type ProgressCallback = (toolId: string, status: ToolProgress['status'], result?: any) => void;
+export type ProgressCallback = (toolId: string, status: ToolProgress['status'], data?: any) => void;
 
 export class ProductAnalyzer {
-  private readonly ANALYSIS_TOOLS = [
-    'categorizer',
-    'competitor',
-    'seo_optimizer', 
-    'trends',
-    'price_optimizer',
-    'content_enhancer',
-    'description_generator',
-    'seo_generator',
-    'marketing_generator'
+  private static readonly ANALYSIS_TOOLS = [
+    'categorizer', 'competitor', 'seo_optimizer', 'trends', 
+    'price_optimizer', 'content_enhancer', 'description_generator', 
+    'seo_generator', 'marketing_generator'
   ];
 
+  private ollamaService: OllamaService;
+
+  constructor() {
+    this.ollamaService = new OllamaService();
+  }
+
+  async resolveEANCandidates(ean: string): Promise<EanCandidate[]> {
+    console.log(`Resolving EAN candidates for: ${ean}`);
+    
+    // Validate EAN format
+    if (!this.validateEAN13(ean)) {
+      console.warn(`Invalid EAN-13 format: ${ean}`);
+      return [];
+    }
+
+    try {
+      // Phase 1: EAN-specific searches on specialized databases
+      const eanSearchQueries = [
+        `"${ean}" site:eandata.com OR site:barcodelookup.com OR site:upcitemdb.com`,
+        `"${ean}" "gtin13" OR "ean13"`,
+        `"${ean}" "fiche technique" OR "caractéristiques" OR "specifications"`
+      ];
+
+      const candidates: EanCandidate[] = [];
+      
+      for (const query of eanSearchQueries) {
+        try {
+          const searchResults = await OllamaService.webSearch(query, 5);
+          
+          for (const result of searchResults.results) {
+            const candidate = await this.extractProductInfoFromUrl(result.url, ean);
+            if (candidate) {
+              candidates.push(candidate);
+            }
+          }
+        } catch (error) {
+          console.warn(`Search failed for query "${query}":`, error);
+        }
+      }
+
+      // Deduplicate and score candidates
+      const uniqueCandidates = this.deduplicateCandidates(candidates);
+      const scoredCandidates = uniqueCandidates
+        .map(candidate => ({
+          ...candidate,
+          score: this.calculateCandidateScore(candidate, ean)
+        }))
+        .filter(candidate => candidate.score >= 0.6) // Minimum confidence threshold
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3); // Top 3 candidates
+
+      console.log(`Found ${scoredCandidates.length} reliable candidates for EAN ${ean}`);
+      return scoredCandidates;
+      
+    } catch (error) {
+      console.error(`Error resolving EAN ${ean}:`, error);
+      return [];
+    }
+  }
+
+  private validateEAN13(ean: string): boolean {
+    if (!/^\d{13}$/.test(ean)) return false;
+    
+    // Luhn algorithm check for EAN-13
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const digit = parseInt(ean[i]);
+      sum += i % 2 === 0 ? digit : digit * 3;
+    }
+    const checkDigit = (10 - (sum % 10)) % 10;
+    return checkDigit === parseInt(ean[12]);
+  }
+
+  private async extractProductInfoFromUrl(url: string, ean: string): Promise<EanCandidate | null> {
+    try {
+      const { html, finalUrl, domain } = await OllamaService.fetchHtml(url);
+      
+      // Check if EAN is present on the page
+      const eanRegex = new RegExp(`\\b${ean}\\b`, 'i');
+      const matchedOnPage = eanRegex.test(html);
+
+      // Extract JSON-LD structured data
+      const jsonLdData = this.extractJsonLD(html);
+      
+      // Extract product information
+      let name = '';
+      let brand = '';
+      let category = '';
+
+      // Try JSON-LD first
+      if (jsonLdData && jsonLdData['@type'] === 'Product') {
+        name = jsonLdData.name || '';
+        brand = jsonLdData.brand?.name || jsonLdData.brand || '';
+        category = jsonLdData.category || '';
+      }
+
+      // Fallback to HTML extraction
+      if (!name) {
+        const titleMatch = html.match(/<title[^>]*>([^<]+)</i);
+        name = titleMatch ? titleMatch[1].trim() : '';
+        
+        // Clean up common title patterns
+        name = name.replace(/\s*-\s*[^-]*$/, '').trim(); // Remove site name at end
+      }
+
+      // Extract brand from meta tags or content
+      if (!brand) {
+        const brandMatch = html.match(/<meta[^>]+(?:property="product:brand"|name="brand")[^>]+content="([^"]+)"/i);
+        brand = brandMatch ? brandMatch[1].trim() : '';
+      }
+
+      if (name) {
+        return {
+          name,
+          brand: brand || undefined,
+          category: category || undefined,
+          sourceUrl: finalUrl,
+          sourceDomain: domain,
+          matchedOnPage,
+          score: 0 // Will be calculated later
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.warn(`Failed to extract info from ${url}:`, error);
+      return null;
+    }
+  }
+
+  private extractJsonLD(html: string): any | null {
+    try {
+      const jsonLdMatch = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/i);
+      if (jsonLdMatch) {
+        const jsonData = JSON.parse(jsonLdMatch[1]);
+        
+        // Handle arrays of JSON-LD objects
+        if (Array.isArray(jsonData)) {
+          return jsonData.find(item => item['@type'] === 'Product') || null;
+        }
+        
+        return jsonData['@type'] === 'Product' ? jsonData : null;
+      }
+    } catch (error) {
+      console.warn('Failed to parse JSON-LD:', error);
+    }
+    return null;
+  }
+
+  private deduplicateCandidates(candidates: EanCandidate[]): EanCandidate[] {
+    const seen = new Set<string>();
+    return candidates.filter(candidate => {
+      const key = `${candidate.name.toLowerCase()}-${candidate.sourceDomain}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private calculateCandidateScore(candidate: EanCandidate, ean: string): number {
+    let score = 0;
+
+    // Base score for having a name
+    if (candidate.name) score += 0.2;
+
+    // Bonus for EAN presence on page (most important)
+    if (candidate.matchedOnPage) score += 0.5;
+
+    // Bonus for trusted domains
+    const trustedDomains = ['eandata.com', 'barcodelookup.com', 'upcitemdb.com', 'openfoodfacts.org'];
+    if (trustedDomains.some(domain => candidate.sourceDomain.includes(domain))) {
+      score += 0.2;
+    }
+
+    // Bonus for having brand information
+    if (candidate.brand) score += 0.1;
+
+    // Bonus for having category
+    if (candidate.category) score += 0.1;
+
+    // Check for Belgian/European context (EAN prefix 54 = Belgium)
+    if (ean.startsWith('54')) {
+      const lowerName = candidate.name.toLowerCase();
+      const lowerBrand = (candidate.brand || '').toLowerCase();
+      
+      // Look for European/Belgian indicators
+      if (lowerName.includes('belgique') || lowerName.includes('belgium') || 
+          lowerBrand.includes('belgique') || lowerBrand.includes('belgium')) {
+        score += 0.1;
+      }
+    }
+
+    return Math.min(score, 1.0); // Cap at 1.0
+  }
+
   async analyzeProduct(product: ProductData, onProgress?: ProgressCallback): Promise<AnalysisResult> {
+    console.log(`Starting analysis for product: ${product.identifier}`);
+    
     const result: AnalysisResult = {
       productId: product.identifier,
       tools: {},
-      createdAt: new Date()
+      createdAt: new Date().toISOString()
     };
 
-    // Enhanced web search with EAN validation
-    let webSearchResults: any[] = [];
-    let eanValidation: any = null;
-    
-    try {
-      if (product.type === 'ean') {
-        // Step 1: EAN-specific search using specialized sources
-        eanValidation = await this.performEANValidation(product.identifier);
+    // Initialize all tools as pending
+    ProductAnalyzer.ANALYSIS_TOOLS.forEach(toolId => {
+      result.tools[toolId] = { status: 'pending' };
+    });
+
+    // Enhanced web search for EAN products
+    let enhancedContext: any = {};
+    if (product.type === 'ean') {
+      try {
+        const eanValidation = await this.performEANValidation(product.identifier);
+        const coherenceCheck = this.validateProductEANCoherence(product, eanValidation);
+        const enhancedSearch = await this.performEnhancedProductSearch(product, eanValidation);
         
-        // Step 2: Enhanced search with validated product info
-        webSearchResults = await this.performEnhancedProductSearch(product, eanValidation);
-      } else {
-        // Standard product name search
-        const searchQuery = `"${product.name}" prix caractéristiques spécifications`;
-        const searchResponse = await OllamaService.webSearch(searchQuery, 5);
-        webSearchResults = searchResponse.results || [];
+        enhancedContext = {
+          eanValidation,
+          coherenceCheck,
+          enhancedSearch
+        };
+        
+        console.log(`Enhanced EAN context prepared for ${product.identifier}`);
+      } catch (error) {
+        console.warn('Enhanced EAN search failed, proceeding with basic analysis:', error);
       }
-    } catch (error) {
-      console.error('Web search failed:', error);
+    } else {
+      // Basic web search for name-based products
+      try {
+        const basicSearch = await OllamaService.webSearch(`"${product.name}" product information specifications`, 3);
+        enhancedContext = { basicSearch };
+      } catch (error) {
+        console.warn('Basic web search failed:', error);
+      }
     }
 
-    // Run all analysis tools in parallel with enhanced context
-    const enhancedContext = {
-      webSearchResults,
-      eanValidation,
-      productValidation: product.type === 'ean' && eanValidation ? 
-        this.validateProductEANCoherence(product, eanValidation) : null
-    };
-
-    const toolPromises = this.ANALYSIS_TOOLS.map(async (toolId) => {
-      if (onProgress) onProgress(toolId, 'running');
-      
+    // Run analysis tools in parallel
+    const toolPromises = ProductAnalyzer.ANALYSIS_TOOLS.map(async (toolId) => {
       try {
+        onProgress?.(toolId, 'running');
+        result.tools[toolId].status = 'running';
+
         const toolResult = await this.runAnalysisTool(toolId, product, enhancedContext);
         
         result.tools[toolId] = {
           status: 'completed',
-          data: toolResult.data,
-          confidence_score: toolResult.confidence_score || 0.8
+          data: toolResult
         };
         
-        // Save to Supabase
-        await this.saveToolResult(toolId, product, toolResult);
+        onProgress?.(toolId, 'completed', toolResult);
         
-        if (onProgress) onProgress(toolId, 'completed', toolResult);
+        // Save individual tool result to database (disabled for now)
+        // await this.saveToolResult(toolId, product, toolResult);
         
       } catch (error) {
         console.error(`Tool ${toolId} failed:`, error);
-        result.tools[toolId] = {
-          status: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-        
-        if (onProgress) onProgress(toolId, 'error');
+        result.tools[toolId].status = 'error';
+        onProgress?.(toolId, 'error');
       }
     });
 
-    await Promise.all(toolPromises);
+    await Promise.allSettled(toolPromises);
+    
+    console.log(`Analysis completed for product: ${product.identifier}`);
     return result;
   }
 
   private async runAnalysisTool(toolId: string, product: ProductData, enhancedContext: any): Promise<any> {
-    const { webSearchResults, eanValidation, productValidation } = enhancedContext;
-    const contextString = webSearchResults?.map(r => `${r.title}: ${r.content}`).join('\n\n') || '';
-    
-    // Enhanced context with EAN validation info
-    const fullContext = {
-      webSearchResults: contextString,
-      eanValidation,
-      productValidation,
-      isEANProduct: product.type === 'ean'
-    };
-    
     switch (toolId) {
       case 'categorizer':
-        return this.categorizerTool(product, fullContext);
-      
+        return this.categorizerTool(product, enhancedContext);
       case 'competitor':
-        return this.competitorTool(product, fullContext);
-      
+        return this.competitorTool(product, enhancedContext);
       case 'seo_optimizer':
-        return this.seoOptimizerTool(product, fullContext);
-      
+        return this.seoOptimizerTool(product, enhancedContext);
       case 'trends':
-        return this.trendsTool(product, fullContext);
-      
+        return this.trendsTool(product, enhancedContext);
       case 'price_optimizer':
-        return this.priceOptimizerTool(product, fullContext);
-      
+        return this.priceOptimizerTool(product, enhancedContext);
       case 'content_enhancer':
-        return this.contentEnhancerTool(product, fullContext);
-      
+        return this.contentEnhancerTool(product, enhancedContext);
       case 'description_generator':
-        return this.descriptionGeneratorTool(product, fullContext);
-      
+        return this.descriptionGeneratorTool(product, enhancedContext);
       case 'seo_generator':
-        return this.seoGeneratorTool(product, fullContext);
-      
+        return this.seoGeneratorTool(product, enhancedContext);
       case 'marketing_generator':
-        return this.marketingGeneratorTool(product, fullContext);
-      
+        return this.marketingGeneratorTool(product, enhancedContext);
       default:
         throw new Error(`Unknown tool: ${toolId}`);
     }
   }
 
-  private async categorizerTool(product: ProductData, context: any): Promise<any> {
-    const eanInfo = context.eanValidation ? 
-      `\n\nINFORMATIONS EAN VALIDÉES (PRIORITAIRES):
-Code EAN: ${product.identifier}
-Nom réel du produit: ${context.eanValidation.realProductName || 'Non trouvé'}
-Catégorie EAN: ${context.eanValidation.category || 'Non trouvée'}
-Marque EAN: ${context.eanValidation.brand || 'Non trouvée'}
-IMPORTANT: Ces informations EAN sont prioritaires sur le nom fourni par l'utilisateur.` : '';
+  private async categorizerTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Analyze this product and categorize it comprehensively:
 
-    const validationWarning = context.productValidation && !context.productValidation.isCoherent ?
-      `\n\nATTENTION: Incohérence détectée entre le nom fourni "${product.name}" et le nom EAN "${context.eanValidation?.realProductName}". Utilisez les données EAN comme référence.` : '';
+Product: ${product.name} (${product.identifier})
+${enhancedContext.eanValidation ? `EAN Info: ${JSON.stringify(enhancedContext.eanValidation)}` : ''}
+${enhancedContext.enhancedSearch ? `Market Info: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 2))}` : ''}
 
-    const prompt = `Analysez ce produit et déterminez sa catégorie précise, ses tags pertinants et ses caractéristiques principales.
-
-Nom fourni: ${product.name}
-${product.type === 'ean' ? `Code EAN: ${product.identifier}` : ''}${eanInfo}${validationWarning}
-
-Contexte web recherche:
-${context.webSearchResults}
-
-IMPORTANT: 
-- Si c'est un produit EAN, les informations EAN validées sont PRIORITAIRES
-- Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-- Utilisez le nom réel du produit basé sur l'EAN si disponible
-
-Exemple de format attendu:
+Provide detailed categorization in JSON format:
 {
-  "category": "catégorie principale",
-  "subcategory": "sous-catégorie", 
+  "main_category": "Primary category",
+  "subcategories": ["sub1", "sub2"],
   "tags": ["tag1", "tag2", "tag3"],
-  "characteristics": ["carac1", "carac2"],
-  "brand": "marque si identifiée",
-  "real_product_name": "nom réel si différent du nom fourni",
-  "ean_coherence": true/false,
-  "confidence_score": 0.85
+  "attributes": {
+    "material": "if applicable",
+    "color": "if applicable",
+    "size": "if applicable",
+    "brand": "detected brand"
+  },
+  "confidence_score": 0.95,
+  "reasoning": "Explanation of categorization"
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'categorizer', 0.85);
+    return this.executeToolWithRetry(prompt, 'categorizer', 0.8);
   }
 
-  private async competitorTool(product: ProductData, context: any): Promise<any> {
-    const eanInfo = context.eanValidation ? 
-      `\nInformations EAN validées: ${context.eanValidation.realProductName || product.name}` : '';
+  private async competitorTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Analyze competitors for this product:
 
-    const prompt = `Analysez la concurrence de ce produit en identifiant les concurrents directs, leurs prix et leurs avantages.
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Market Data: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 3))}` : ''}
 
-Produit: ${context.eanValidation?.realProductName || product.name}${eanInfo}
-Contexte: ${context.webSearchResults}
-
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Provide competitor analysis in JSON format:
 {
   "competitors": [
     {
-      "name": "concurrent 1", 
-      "price": "prix si trouvé",
-      "advantages": ["avantage 1", "avantage 2"],
-      "url": "url si disponible"
+      "name": "Competitor name",
+      "price": "price if found",
+      "features": ["feature1", "feature2"],
+      "strengths": ["strength1"],
+      "weaknesses": ["weakness1"]
     }
   ],
-  "market_position": "positionnement du produit",
-  "price_range": {"min": 0, "max": 0},
-  "confidence_score": 0.75
+  "market_position": "Premium/Mid-range/Budget",
+  "competitive_advantages": ["advantage1", "advantage2"],
+  "threats": ["threat1", "threat2"],
+  "confidence_score": 0.85,
+  "data_sources": ["source1", "source2"]
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'competitor', 0.75);
+    return this.executeToolWithRetry(prompt, 'competitor', 0.75);
   }
 
-  private async seoOptimizerTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Optimisez le SEO de ce produit en proposant des mots-clés, méta-descriptions et titres optimisés.
+  private async seoOptimizerTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Optimize SEO for this product:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Market Context: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 2))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Provide SEO optimization in JSON format:
 {
-  "title_seo": "titre optimisé SEO (max 60 chars)",
-  "meta_description": "méta description (max 160 chars)", 
-  "keywords": ["mot-clé1", "mot-clé2"],
-  "h1_suggestion": "titre H1 optimisé",
-  "url_slug": "url-optimise-seo",
-  "confidence_score": 0.9
+  "title_tags": ["optimized title 1", "optimized title 2"],
+  "meta_descriptions": ["description 1", "description 2"],
+  "keywords": {
+    "primary": ["main keyword 1", "main keyword 2"],
+    "secondary": ["secondary 1", "secondary 2"],
+    "long_tail": ["long tail phrase 1", "long tail phrase 2"]
+  },
+  "schema_markup": {
+    "product_type": "Product type for schema",
+    "category": "Schema category"
+  },
+  "confidence_score": 0.88,
+  "seo_score": 85
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'seo_optimizer', 0.9);
+    return this.executeToolWithRetry(prompt, 'seo_optimizer', 0.8);
   }
 
-  private async trendsTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Analysez les tendances du marché pour ce produit et prédisez sa popularité.
+  private async trendsTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Analyze market trends for this product:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Market Data: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 3))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Provide trends analysis in JSON format:
 {
-  "trend_score": 0.8,
-  "trend_direction": "croissante",
-  "seasonal_factors": ["facteur1", "facteur2"],
-  "popularity_prediction": "prédiction sur 6 mois", 
-  "trending_keywords": ["tendance1", "tendance2"],
-  "confidence_score": 0.7
+  "current_trends": ["trend1", "trend2", "trend3"],
+  "seasonal_patterns": {
+    "peak_months": ["month1", "month2"],
+    "low_months": ["month1", "month2"]
+  },
+  "growth_prediction": "Growing/Stable/Declining",
+  "market_opportunities": ["opportunity1", "opportunity2"],
+  "emerging_competitors": ["competitor1", "competitor2"],
+  "technology_trends": ["tech trend1", "tech trend2"],
+  "confidence_score": 0.82,
+  "forecast_period": "12 months"
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'trends', 0.7);
+    return this.executeToolWithRetry(prompt, 'trends', 0.75);
   }
 
-  private async priceOptimizerTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Analysez les prix du marché et suggérez une stratégie de prix optimale.
+  private async priceOptimizerTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Optimize pricing strategy for this product:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Competitor Pricing: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 3))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Provide pricing optimization in JSON format:
 {
-  "suggested_price_range": {"min": 10, "max": 100},
-  "market_average": 50,
-  "pricing_strategy": "stratégie recommandée",
-  "margin_recommendations": "recommandations de marge",
-  "competitor_prices": [{"name": "concurrent", "price": 45}],
-  "confidence_score": 0.8
+  "recommended_price_range": {
+    "min": 0,
+    "max": 0,
+    "optimal": 0
+  },
+  "pricing_strategy": "Premium/Competitive/Penetration",
+  "competitor_prices": [
+    {"competitor": "name", "price": 0, "features": "comparison"}
+  ],
+  "value_propositions": ["proposition1", "proposition2"],
+  "price_sensitivity_factors": ["factor1", "factor2"],
+  "seasonal_adjustments": ["adjustment1", "adjustment2"],
+  "confidence_score": 0.85,
+  "currency": "EUR"
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'price_optimizer', 0.8);
+    return this.executeToolWithRetry(prompt, 'price_optimizer', 0.8);
   }
 
-  private async contentEnhancerTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Enrichissez le contenu de ce produit avec des détails pertinents et des spécifications techniques.
+  private async contentEnhancerTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Enhance product content and descriptions:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.eanValidation ? `Validated Product Info: ${JSON.stringify(enhancedContext.eanValidation)}` : ''}
+${enhancedContext.enhancedSearch ? `Additional Context: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 2))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Provide content enhancement in JSON format:
 {
-  "enhanced_features": ["fonctionnalité 1", "fonctionnalité 2"],
-  "technical_specs": {"spec1": "valeur1", "spec2": "valeur2"},
-  "usage_scenarios": ["usage 1", "usage 2"],
-  "compatibility": ["compatible avec 1", "compatible avec 2"],
-  "warranty_info": "informations garantie",
-  "confidence_score": 0.85
+  "enhanced_title": "Improved product title",
+  "short_description": "Brief compelling description (50-100 words)",
+  "detailed_description": "Comprehensive description (200-300 words)",
+  "key_features": ["feature1", "feature2", "feature3"],
+  "benefits": ["benefit1", "benefit2", "benefit3"],
+  "use_cases": ["use case1", "use case2"],
+  "technical_specs": {"spec1": "value1", "spec2": "value2"},
+  "confidence_score": 0.9,
+  "content_quality_score": 95
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'content_enhancer', 0.85);
+    return this.executeToolWithRetry(prompt, 'content_enhancer', 0.85);
   }
 
-  private async descriptionGeneratorTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Générez une description détaillée et attractive pour ce produit.
+  private async descriptionGeneratorTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Generate comprehensive product descriptions:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Research Data: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 3))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Generate product descriptions in JSON format:
 {
-  "short_description": "description courte (1-2 phrases)",
-  "long_description": "description détaillée (plusieurs paragraphes)",
-  "bullet_points": ["point 1", "point 2", "point 3"],
-  "call_to_action": "appel à l'action suggéré",
-  "confidence_score": 0.9
+  "descriptions": {
+    "short": "Concise 1-2 sentence description",
+    "medium": "Paragraph description (100-150 words)",
+    "detailed": "Comprehensive description (300-500 words)",
+    "bullet_points": ["point1", "point2", "point3", "point4", "point5"]
+  },
+  "target_audiences": ["audience1", "audience2"],
+  "emotional_appeals": ["appeal1", "appeal2"],
+  "call_to_action": ["cta1", "cta2"],
+  "confidence_score": 0.88,
+  "readability_score": 85
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'description_generator', 0.9);
+    return this.executeToolWithRetry(prompt, 'description_generator', 0.8);
   }
 
-  private async seoGeneratorTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Générez du contenu SEO optimisé pour ce produit incluant FAQ et contenu structuré.
+  private async seoGeneratorTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Generate SEO-optimized content for this product:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `SEO Context: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 2))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Generate SEO content in JSON format:
 {
-  "faq": [{"question": "Q1", "answer": "R1"}],
-  "structured_data": {"@type": "Product", "name": "nom", "description": "desc"},
-  "seo_content": "contenu SEO additionnel",
-  "related_searches": ["recherche 1", "recherche 2"],
-  "confidence_score": 0.85
+  "seo_title": "SEO-optimized title (50-60 chars)",
+  "meta_description": "Meta description (150-160 chars)",
+  "h1_tag": "Main heading",
+  "h2_tags": ["subheading1", "subheading2"],
+  "seo_content": "SEO-optimized content (300-400 words)",
+  "alt_texts": ["alt text for image1", "alt text for image2"],
+  "internal_links": ["suggested internal link1", "suggested internal link2"],
+  "faq_section": [
+    {"question": "Q1?", "answer": "A1"},
+    {"question": "Q2?", "answer": "A2"}
+  ],
+  "confidence_score": 0.87,
+  "seo_score": 90
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'seo_generator', 0.85);
+    return this.executeToolWithRetry(prompt, 'seo_generator', 0.8);
   }
 
-  private async marketingGeneratorTool(product: ProductData, context: any): Promise<any> {
-    const realName = context.eanValidation?.realProductName || product.name;
-    
-    const prompt = `Créez du contenu marketing persuasif pour ce produit.
+  private async marketingGeneratorTool(product: ProductData, enhancedContext: any): Promise<any> {
+    const prompt = `Generate marketing content for this product:
 
-Produit: ${realName}
-Contexte: ${context.webSearchResults}
+Product: ${product.name} (${product.identifier})
+${enhancedContext.enhancedSearch ? `Market Context: ${JSON.stringify(enhancedContext.enhancedSearch?.slice(0, 2))}` : ''}
 
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide, sans texte additionnel, sans backticks, sans formatage markdown.
-
-Exemple de format attendu:
+Generate marketing content in JSON format:
 {
-  "headline": "titre accrocheur",
-  "value_propositions": ["proposition 1", "proposition 2"],
-  "benefits": ["bénéfice 1", "bénéfice 2"],
-  "social_proof": "preuve sociale suggérée",
-  "urgency_triggers": ["déclencheur 1", "déclencheur 2"],
-  "target_audience": "audience cible",
-  "confidence_score": 0.8
+  "marketing_messages": {
+    "headline": "Catchy main headline",
+    "tagline": "Memorable tagline",
+    "elevator_pitch": "30-second pitch"
+  },
+  "social_media_posts": {
+    "facebook": "Facebook-optimized post",
+    "instagram": "Instagram caption with hashtags",
+    "twitter": "Tweet-length message"
+  },
+  "ad_copy": {
+    "google_ads": "Google Ads headline and description",
+    "facebook_ads": "Facebook ad copy"
+  },
+  "email_marketing": {
+    "subject_lines": ["subject1", "subject2", "subject3"],
+    "preview_text": "Email preview text"
+  },
+  "value_propositions": ["value prop1", "value prop2"],
+  "confidence_score": 0.86,
+  "engagement_prediction": 85
 }`;
-
-    return await this.executeToolWithRetry(prompt, 'marketing_generator', 0.8);
+    return this.executeToolWithRetry(prompt, 'marketing_generator', 0.8);
   }
 
-  private async saveToolResult(toolId: string, product: ProductData, result: any): Promise<void> {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error('No authenticated user found');
-        return;
-      }
-
-      const { error } = await supabase
-        .from('magic_tools_results')
-        .insert({
-          user_id: user.id,
-          tool_id: toolId,
-          tool_name: this.getToolName(toolId),
-          product_name: product.name,
-          result_data: result.data,
-          confidence_score: result.confidence_score,
-          metadata: {
-            product_identifier: product.identifier,
-            product_type: product.type,
-            analyzed_at: new Date().toISOString()
-          }
-        });
-
-      if (error) {
-        console.error('Failed to save tool result:', error);
-      }
-    } catch (error) {
-      console.error('Failed to save to Supabase:', error);
-    }
-  }
-
-  private getToolName(toolId: string): string {
-    const toolNames: { [key: string]: string } = {
-      'categorizer': 'Catégorisateur Automatique',
-      'competitor': 'Analyseur Concurrentiel',
-      'seo_optimizer': 'Optimiseur SEO',
-      'trends': 'Détecteur de Tendances',
-      'price_optimizer': 'Optimiseur de Prix',
-      'content_enhancer': 'Améliorateur de Contenu',
-      'description_generator': 'Générateur de Descriptions',
-      'seo_generator': 'Générateur SEO',
-      'marketing_generator': 'Générateur Marketing'
-    };
-    
-      return toolNames[toolId] || toolId;
-  }
-
-  // New methods for enhanced EAN handling
   private async performEANValidation(eanCode: string): Promise<any> {
     try {
-      console.log(`[EAN Validation] Starting for EAN: ${eanCode}`);
+      console.log(`Performing EAN validation for: ${eanCode}`);
       
-      // Step 1: Search specialized EAN databases
-      const eanSpecificQuery = `"${eanCode}" site:eandata.com OR site:barcodelookup.com OR site:openfoodfacts.org OR site:upcitemdb.com`;
-      const eanResponse = await OllamaService.webSearch(eanSpecificQuery, 3);
+      // Search for specific EAN validation databases
+      const eanSearchResults = await OllamaService.webSearch(
+        `"${eanCode}" site:eandata.com OR site:barcodelookup.com OR site:gepir.gs1.org`,
+        3
+      );
       
-      // Step 2: Extract real product information from EAN results
-      if (eanResponse.results && eanResponse.results.length > 0) {
-        const eanContext = eanResponse.results.map(r => `${r.title}: ${r.content}`).join('\n\n');
-        
-        const extractionPrompt = `Extrayez les informations précises du produit à partir des données EAN spécialisées.
-
-Code EAN: ${eanCode}
-
-Données des bases EAN spécialisées:
-${eanContext}
-
-IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide contenant les informations réelles du produit.
-
-{
-  "realProductName": "nom exact du produit selon l'EAN",
-  "brand": "marque exacte",
-  "category": "catégorie selon EAN", 
-  "description": "description courte",
-  "specifications": ["spec1", "spec2"],
-  "confidence_score": 0.9,
-  "source": "source de l'information"
-}`;
-
-        const validation = await this.executeToolWithRetry(extractionPrompt, 'ean_validation', 0.9);
-        console.log(`[EAN Validation] Success:`, validation.data);
-        return validation.data;
-      }
+      const validationData = {
+        ean: eanCode,
+        isValid: this.validateEAN13(eanCode),
+        sources: eanSearchResults.results.map(r => ({
+          title: r.title,
+          url: r.url,
+          content: r.content.substring(0, 200)
+        }))
+      };
       
-      return null;
+      console.log(`EAN validation completed for ${eanCode}`);
+      return validationData;
     } catch (error) {
-      console.error('[EAN Validation] Failed:', error);
-      return null;
+      console.warn(`EAN validation failed for ${eanCode}:`, error);
+      return { ean: eanCode, isValid: false, error: error.message };
     }
   }
 
   private async performEnhancedProductSearch(product: ProductData, eanValidation: any): Promise<any[]> {
     try {
-      const realProductName = eanValidation?.realProductName || product.name;
-      const brand = eanValidation?.brand;
+      console.log(`Performing enhanced search for EAN product: ${product.identifier}`);
       
-      // Enhanced search query using real product info from EAN
-      const enhancedQuery = brand ? 
-        `"${realProductName}" "${brand}" prix spécifications -${product.name}` :
-        `"${realProductName}" "${product.identifier}" prix caractéristiques`;
+      const queries = [
+        `"${product.identifier}" "${product.name}" specifications`,
+        `"${product.identifier}" price review features`,
+        `"${product.name}" EAN ${product.identifier} product information`
+      ];
       
-      console.log(`[Enhanced Search] Query: ${enhancedQuery}`);
-      const searchResponse = await OllamaService.webSearch(enhancedQuery, 5);
+      const allResults = [];
+      for (const query of queries) {
+        try {
+          const results = await OllamaService.webSearch(query, 3);
+          allResults.push(...results.results);
+        } catch (error) {
+          console.warn(`Enhanced search query failed: ${query}`, error);
+        }
+      }
       
-      return searchResponse.results || [];
+      // Remove duplicates and limit results
+      const uniqueResults = allResults.filter((result, index, self) => 
+        index === self.findIndex(r => r.url === result.url)
+      ).slice(0, 5);
+      
+      console.log(`Enhanced search completed: ${uniqueResults.length} unique results`);
+      return uniqueResults;
     } catch (error) {
-      console.error('[Enhanced Search] Failed:', error);
+      console.error(`Enhanced product search failed:`, error);
       return [];
     }
   }
 
   private validateProductEANCoherence(product: ProductData, eanValidation: any): any {
-    if (!eanValidation || !eanValidation.realProductName) {
-      return { isCoherent: false, reason: 'No EAN validation data' };
+    const coherence = {
+      nameMatch: false,
+      brandMatch: false,
+      coherenceScore: 0,
+      issues: [] as string[]
+    };
+
+    if (!eanValidation || !eanValidation.sources) {
+      coherence.issues.push('No EAN validation data available');
+      return coherence;
     }
 
-    const providedName = product.name.toLowerCase();
-    const realName = eanValidation.realProductName.toLowerCase();
+    // Simple text matching for coherence check
+    const productNameLower = product.name.toLowerCase();
+    const eanContent = eanValidation.sources.map((s: any) => 
+      `${s.title} ${s.content}`.toLowerCase()
+    ).join(' ');
+
+    const nameWords = productNameLower.split(' ').filter(w => w.length > 2);
+    const matchedWords = nameWords.filter(word => eanContent.includes(word));
     
-    // Simple coherence check - can be enhanced with fuzzy matching
-    const similarity = this.calculateStringSimilarity(providedName, realName);
-    const isCoherent = similarity > 0.6; // 60% similarity threshold
-    
-    return {
-      isCoherent,
-      similarity,
-      providedName: product.name,
-      realName: eanValidation.realProductName,
-      reason: isCoherent ? 'Names are coherent' : `Names too different: "${product.name}" vs "${eanValidation.realProductName}"`
-    };
+    coherence.nameMatch = matchedWords.length > 0;
+    coherence.coherenceScore = nameWords.length > 0 ? matchedWords.length / nameWords.length : 0;
+
+    if (coherence.coherenceScore < 0.3) {
+      coherence.issues.push('Product name does not match EAN data');
+    }
+
+    return coherence;
   }
 
-  private calculateStringSimilarity(str1: string, str2: string): number {
-    // Simple Jaccard similarity based on words
-    const words1 = new Set(str1.split(/\s+/));
-    const words2 = new Set(str2.split(/\s+/));
-    
-    const intersection = new Set([...words1].filter(word => words2.has(word)));
-    const union = new Set([...words1, ...words2]);
-    
-    return intersection.size / union.size;
+  private async saveToolResult(toolId: string, product: ProductData, result: any): Promise<void> {
+    try {
+      await supabase
+        .from('analysis_results')
+        .insert({
+          product_identifier: product.identifier,
+          product_name: product.name,
+          tool_name: toolId,
+          tool_display_name: this.getToolName(toolId),
+          result_data: result,
+          confidence_score: result.confidence_score || 0,
+          created_at: new Date().toISOString()
+        });
+      
+      console.log(`Saved ${toolId} result for ${product.identifier}`);
+    } catch (error) {
+      console.error(`Failed to save ${toolId} result:`, error);
+    }
+  }
+
+  private getToolName(toolId: string): string {
+    const names: Record<string, string> = {
+      categorizer: 'Catégorisateur Automatique',
+      competitor: 'Analyseur Concurrentiel', 
+      seo_optimizer: 'Optimiseur SEO',
+      trends: 'Détecteur de Tendances',
+      price_optimizer: 'Optimiseur de Prix',
+      content_enhancer: 'Améliorateur de Contenu',
+      description_generator: 'Générateur de Descriptions',
+      seo_generator: 'Générateur SEO',
+      marketing_generator: 'Générateur Marketing'
+    };
+    return names[toolId] || toolId;
   }
 
   private async executeToolWithRetry(prompt: string, toolId: string, defaultConfidence: number, maxRetries: number = 3): Promise<any> {
@@ -533,97 +692,91 @@ IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide contenant les informat
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`[${toolId}] Attempt ${attempt}/${maxRetries}`);
+        console.log(`Executing ${toolId} (attempt ${attempt}/${maxRetries})`);
         
-        // Use a more reliable model for better consistency
-        const response = await OllamaService.chat('deepseek-v3.1:671b-cloud', [
-          { 
-            role: 'system', 
-            content: 'Vous êtes un assistant spécialisé en analyse de produits. Répondez TOUJOURS et UNIQUEMENT avec du JSON valide, sans aucun texte additionnel.' 
+        const model = 'gpt-oss:20b-cloud';
+        const messages = [
+          {
+            role: 'system' as const,
+            content: 'You are an expert product analyst. Always respond with valid JSON only, no additional text or explanations.'
           },
-          { role: 'user', content: prompt }
-        ]);
-
-        console.log(`[${toolId}] Raw response:`, response.substring(0, 200) + '...');
+          {
+            role: 'user' as const,
+            content: prompt
+          }
+        ];
         
-        // Clean and validate JSON response
+        const response = await OllamaService.chat(model, messages);
+        
+        if (!response || response.trim().length === 0) {
+          throw new Error('Empty response from LLM');
+        }
+        
         const cleanedResponse = this.cleanJsonResponse(response);
-        console.log(`[${toolId}] Cleaned response:`, cleanedResponse.substring(0, 200) + '...');
-        
         const parsedData = this.parseJsonSafely(cleanedResponse);
         
         if (!parsedData) {
-          throw new Error(`Failed to parse JSON for ${toolId}`);
+          throw new Error('Invalid JSON response');
         }
-
-        // Validate required structure
+        
         if (!this.validateToolResponse(parsedData, toolId)) {
-          throw new Error(`Invalid response structure for ${toolId}`);
+          throw new Error('Response validation failed');
         }
-
-        console.log(`[${toolId}] Success on attempt ${attempt}`);
-        return {
-          data: parsedData,
-          confidence_score: parsedData.confidence_score || defaultConfidence
-        };
-
+        
+        // Ensure confidence score exists
+        if (!parsedData.confidence_score) {
+          parsedData.confidence_score = defaultConfidence;
+        }
+        
+        console.log(`${toolId} completed successfully on attempt ${attempt}`);
+        return parsedData;
+        
       } catch (error) {
-        console.error(`[${toolId}] Attempt ${attempt} failed:`, error);
-        lastError = error instanceof Error ? error : new Error(String(error));
+        lastError = error as Error;
+        console.warn(`${toolId} attempt ${attempt} failed:`, error);
         
         if (attempt < maxRetries) {
-          // Wait before retry with exponential backoff
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          console.log(`[${toolId}] Waiting ${delay}ms before retry...`);
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
-
-    // All retries failed, return fallback response
-    console.error(`[${toolId}] All retries failed, using fallback`);
+    
+    console.error(`${toolId} failed after ${maxRetries} attempts, using fallback`);
     return this.getFallbackResponse(toolId, defaultConfidence);
   }
 
   private cleanJsonResponse(response: string): string {
     // Remove markdown code blocks
-    let cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    response = response.replace(/```json\s*/, '').replace(/```\s*$/, '');
+    response = response.replace(/```\s*/, '');
     
-    // Remove any text before the first {
-    const firstBrace = cleaned.indexOf('{');
-    if (firstBrace > 0) {
-      cleaned = cleaned.substring(firstBrace);
+    // Find JSON content between curly braces
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
     }
     
-    // Remove any text after the last }
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (lastBrace > -1 && lastBrace < cleaned.length - 1) {
-      cleaned = cleaned.substring(0, lastBrace + 1);
-    }
-    
-    // Remove common prefixes
-    cleaned = cleaned.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
-    
-    return cleaned.trim();
+    return response.trim();
   }
 
   private parseJsonSafely(jsonString: string): any | null {
     try {
       return JSON.parse(jsonString);
     } catch (error) {
-      console.error('JSON parsing failed:', error);
+      console.warn('Initial JSON parse failed, attempting fixes...');
       
-      // Try to fix common JSON issues
       try {
-        // Fix unescaped quotes in strings
-        let fixed = jsonString.replace(/": "([^"]*)"([^",}\]])/g, '": "$1\\"$2');
-        fixed = fixed.replace(/": "([^"]*)"/g, (match, content) => {
-          return '": "' + content.replace(/"/g, '\\"') + '"';
-        });
+        // Common JSON fixes
+        let fixed = jsonString
+          .replace(/,\s*}/g, '}') // Remove trailing commas
+          .replace(/,\s*]/g, ']')
+          .replace(/([{,]\s*)(\w+):/g, '$1"$2":') // Quote unquoted keys
+          .replace(/:\s*'([^']*?)'/g, ': "$1"'); // Replace single quotes with double quotes
         
         return JSON.parse(fixed);
       } catch (secondError) {
-        console.error('JSON fix attempt failed:', secondError);
+        console.error('JSON parsing failed even after fixes:', secondError);
         return null;
       }
     }
@@ -633,50 +786,67 @@ IMPORTANT: Répondez UNIQUEMENT avec un objet JSON valide contenant les informat
     if (!data || typeof data !== 'object') {
       return false;
     }
-
-    // Basic validation - ensure it's an object and has some content
-    const keys = Object.keys(data);
-    return keys.length > 0;
+    
+    // Tool-specific validation
+    switch (toolId) {
+      case 'categorizer':
+        return !!(data.main_category && Array.isArray(data.tags));
+      case 'competitor':
+        return !!(Array.isArray(data.competitors) && data.market_position);
+      case 'seo_optimizer':
+        return !!(Array.isArray(data.title_tags) && data.keywords);
+      case 'trends':
+        return !!(Array.isArray(data.current_trends) && data.growth_prediction);
+      case 'price_optimizer':
+        return !!(data.recommended_price_range && data.pricing_strategy);
+      case 'content_enhancer':
+        return !!(data.enhanced_title && data.short_description);
+      case 'description_generator':
+        return !!(data.descriptions && data.descriptions.short);
+      case 'seo_generator':
+        return !!(data.seo_title && data.meta_description);
+      case 'marketing_generator':
+        return !!(data.marketing_messages && data.value_propositions);
+      default:
+        return true;
+    }
   }
 
   private getFallbackResponse(toolId: string, confidence: number): any {
-    const fallbackResponses: { [key: string]: any } = {
-      'categorizer': {
-        data: {
-          category: 'Produit général',
-          subcategory: 'Non classifié',
-          tags: ['produit', 'général'],
-          characteristics: ['À analyser'],
-          brand: 'Non identifiée',
-          confidence_score: 0.3
-        },
-        confidence_score: 0.3
+    const fallbacks: Record<string, any> = {
+      categorizer: {
+        main_category: "Non classé",
+        subcategories: [],
+        tags: ["produit", "général"],
+        attributes: {},
+        confidence_score: confidence,
+        reasoning: "Analyse de fallback - données insuffisantes"
       },
-      'competitor': {
-        data: {
-          competitors: [],
-          market_position: 'À analyser',
-          price_range: { min: 0, max: 0 },
-          confidence_score: 0.3
-        },
-        confidence_score: 0.3
+      competitor: {
+        competitors: [],
+        market_position: "Non déterminé",
+        competitive_advantages: [],
+        threats: [],
+        confidence_score: confidence,
+        data_sources: []
       },
-      'seo_optimizer': {
-        data: {
-          title_seo: 'Titre à optimiser',
-          meta_description: 'Description à optimiser',
-          keywords: ['produit'],
-          h1_suggestion: 'Titre H1 à optimiser',
-          url_slug: 'produit-a-optimiser',
-          confidence_score: 0.3
+      seo_optimizer: {
+        title_tags: ["Produit de qualité"],
+        meta_descriptions: ["Découvrez ce produit exceptionnel"],
+        keywords: {
+          primary: ["produit"],
+          secondary: [],
+          long_tail: []
         },
-        confidence_score: 0.3
+        confidence_score: confidence,
+        seo_score: 50
       }
     };
 
-    return fallbackResponses[toolId] || {
-      data: { error: 'Analyse indisponible', confidence_score: 0.1 },
-      confidence_score: 0.1
+    return fallbacks[toolId] || {
+      error: "Outil non disponible",
+      confidence_score: 0,
+      message: "Données insuffisantes pour l'analyse"
     };
   }
 }

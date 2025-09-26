@@ -89,6 +89,24 @@ export class OllamaService {
     }
   }
 
+  static async fetchHtml(url: string): Promise<{ html: string; finalUrl: string; domain: string; status: number }> {
+    try {
+      console.log(`Fetching HTML for URL: ${url}`);
+      
+      const { supabase } = await import('@/integrations/supabase/client');
+      const { data, error } = await supabase.functions.invoke('fetch-html', {
+        body: { url }
+      });
+
+      if (error) throw error;
+      
+      return data;
+    } catch (error) {
+      console.error('HTML fetch error:', error);
+      throw new Error(`Failed to fetch HTML: ${error.message}`);
+    }
+  }
+
   static async webSearch(query: string, maxResults: number = 5): Promise<WebSearchResponse> {
     const apiKey = this.getApiKey();
     if (!apiKey) {

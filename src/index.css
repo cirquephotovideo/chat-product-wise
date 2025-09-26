@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Ollama-inspired theme with modern gradients */
+    /* Modern black theme */
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
 
@@ -18,10 +18,10 @@ All colors MUST be HSL.
     --popover: 240 5% 6%;
     --popover-foreground: 0 0% 98%;
 
-    /* Primary: Ollama brand purple */
-    --primary: 263 70% 60%;
+    /* Primary: Black tones */
+    --primary: 0 0% 9%;
     --primary-foreground: 0 0% 98%;
-    --primary-glow: 263 70% 70%;
+    --primary-glow: 0 0% 15%;
 
     /* Secondary: Warm accent */
     --secondary: 240 5% 15%;
@@ -30,7 +30,7 @@ All colors MUST be HSL.
     --muted: 240 5% 10%;
     --muted-foreground: 240 5% 65%;
 
-    /* Accent: Success green for web search results */
+    /* Accent: Success green for validations */
     --accent: 142 76% 36%;
     --accent-foreground: 0 0% 98%;
     --accent-glow: 142 76% 46%;
@@ -40,17 +40,17 @@ All colors MUST be HSL.
 
     --border: 240 5% 15%;
     --input: 240 5% 15%;
-    --ring: 263 70% 60%;
+    --ring: 0 0% 20%;
 
     /* Chat-specific design tokens */
-    --chat-user: 263 70% 60%;
+    --chat-user: 0 0% 9%;
     --chat-assistant: 240 5% 10%;
     --chat-search: 142 76% 36%;
     
     /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(263 70% 60%), hsl(263 70% 70%));
+    --gradient-primary: linear-gradient(135deg, hsl(0 0% 9%), hsl(0 0% 15%));
     --gradient-subtle: linear-gradient(180deg, hsl(240 10% 3.9%), hsl(240 5% 6%));
-    --gradient-glow: radial-gradient(600px circle at 50% 50%, hsl(263 70% 60% / 0.15), transparent);
+    --gradient-glow: radial-gradient(600px circle at 50% 50%, hsl(0 0% 20% / 0.15), transparent);
     
     /* Animations */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -62,35 +62,35 @@ All colors MUST be HSL.
 
     --sidebar-foreground: 240 5.3% 26.1%;
 
-    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary: 0 0% 9%;
 
     --sidebar-primary-foreground: 0 0% 98%;
 
     --sidebar-accent: 240 4.8% 95.9%;
 
-    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-accent-foreground: 0 0% 9%;
 
     --sidebar-border: 220 13% 91%;
 
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-ring: 0 0% 20%;
   }
 
   .light {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 0 0% 9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 0 0% 9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 0 0% 9%;
 
-    --primary: 263 70% 60%;
+    --primary: 0 0% 9%;
     --primary-foreground: 0 0% 98%;
-    --primary-glow: 263 70% 50%;
+    --primary-glow: 0 0% 15%;
 
     --secondary: 240 5% 96%;
-    --secondary-foreground: 240 10% 3.9%;
+    --secondary-foreground: 0 0% 9%;
 
     --muted: 240 5% 96%;
     --muted-foreground: 240 5% 45%;
@@ -104,23 +104,23 @@ All colors MUST be HSL.
 
     --border: 240 5% 90%;
     --input: 240 5% 90%;
-    --ring: 263 70% 60%;
+    --ring: 0 0% 20%;
 
-    --chat-user: 263 70% 60%;
+    --chat-user: 0 0% 9%;
     --chat-assistant: 240 5% 96%;
     --chat-search: 142 76% 36%;
     
-    --gradient-primary: linear-gradient(135deg, hsl(263 70% 60%), hsl(263 70% 50%));
+    --gradient-primary: linear-gradient(135deg, hsl(0 0% 9%), hsl(0 0% 15%));
     --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(240 5% 98%));
-    --gradient-glow: radial-gradient(600px circle at 50% 50%, hsl(263 70% 60% / 0.1), transparent);
+    --gradient-glow: radial-gradient(600px circle at 50% 50%, hsl(0 0% 20% / 0.1), transparent);
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary: 0 0% 9%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 240 3.7% 15.9%;
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-ring: 0 0% 20%;
   }
 }
 

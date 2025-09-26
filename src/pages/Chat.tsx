@@ -132,21 +132,41 @@ export default function Chat() {
     setIsLoading(true);
 
     try {
-      // Check if the message is about a product and perform web search
-      const isProductQuery = /produit|product|achat|acheter|buy|prix|price|avis|review|comparaison|compare/i.test(content);
+      // Enhanced product query detection
+      const isProductQuery = /produit|product|achat|acheter|buy|buying|prix|price|cost|coût|avis|review|opinion|comparaison|compare|test|évaluation|meilleur|best|top|recommandation|smartphone|laptop|ordinateur|voiture|car|électronique|electronics|maison|home|cuisine|kitchen|sport|fitness|beauté|beauty|vêtement|clothing|livre|book|gadget|appareil|device|marque|brand|modèle|model|spécifications|specs|caractéristiques|features|où acheter|where to buy|disponible|available|stock|promotion|promo|discount|réduction|solde|sale/i.test(content);
       let searchResults: WebSearchResult[] = [];
       
       if (isProductQuery) {
         try {
-          const searchResponse = await OllamaService.webSearch(content, 3);
-          searchResults = searchResponse.results;
+          console.log('Product query detected, performing web search...');
           
+          // Show search in progress toast
           toast({
-            title: "Recherche web effectuée",
-            description: `${searchResults.length} sources trouvées pour enrichir la réponse.`,
+            title: "🔍 Recherche en cours...",
+            description: "Recherche d'informations à jour sur le web.",
           });
+          
+          const searchResponse = await OllamaService.webSearch(content, 3);
+          searchResults = searchResponse.results || [];
+          
+          if (searchResults.length > 0) {
+            toast({
+              title: "✅ Recherche web effectuée",
+              description: `${searchResults.length} sources trouvées pour enrichir la réponse.`,
+            });
+          } else {
+            toast({
+              title: "ℹ️ Recherche terminée",
+              description: "Aucune source pertinente trouvée, utilisation des connaissances générales.",
+            });
+          }
         } catch (error) {
           console.error('Web search failed:', error);
+          toast({
+            title: "⚠️ Recherche web échouée",
+            description: "Impossible d'effectuer la recherche web, utilisation des connaissances générales.",
+            variant: "destructive",
+          });
         }
       }
 

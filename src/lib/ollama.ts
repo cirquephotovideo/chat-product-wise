@@ -95,16 +95,24 @@ export class OllamaService {
       throw new Error('API key not found');
     }
 
-    const response = await this.callProxy('POST', '/web_search', {
-      query,
-      max_results: maxResults
-    });
+    try {
+      console.log(`Performing web search for: "${query}"`);
+      const response = await this.callProxy('POST', '/web_search', {
+        query,
+        max_results: maxResults
+      });
 
-    if (!response.ok) {
-      throw new Error(`Web search failed: ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Web search failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`Web search completed: ${result.results?.length || 0} results found`);
+      return result;
+    } catch (error) {
+      console.error('Web search error:', error);
+      throw new Error(`Web search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    return response.json();
   }
 
   static async chat(

@@ -25,7 +25,7 @@ serve(async (req) => {
     const ollamaResponse = await fetch(`https://ollama.com/api${endpoint}`, {
       method,
       headers: {
-        'Authorization': OLLAMA_API_KEY,
+        'Authorization': `Bearer ${OLLAMA_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: method !== 'GET' ? JSON.stringify(requestBody) : undefined,

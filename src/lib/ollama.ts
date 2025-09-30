@@ -68,12 +68,13 @@ export class OllamaService {
 
   static async testApiKey(apiKey: string): Promise<boolean> {
     try {
-      console.log('Testing API key with Ollama proxy');
+      console.log('Testing API key with Ollama Cloud');
       // Store the key temporarily for testing
       const oldKey = this.getApiKey();
       this.saveApiKey(apiKey);
       
-      const response = await this.callProxy('GET', '/tags');
+      // Test with the correct endpoint - just the path after /api/
+      const response = await this.callProxy('GET', 'tags');
       
       // Restore old key if test fails
       if (!response.ok && oldKey) {
@@ -97,7 +98,8 @@ export class OllamaService {
 
     try {
       console.log(`Performing web search for: "${query}"`);
-      const response = await this.callProxy('POST', '/web_search', {
+      // Endpoint should be just 'web_search' - proxy will add /api/ prefix
+      const response = await this.callProxy('POST', 'web_search', {
         query,
         max_results: maxResults
       });
@@ -130,7 +132,7 @@ export class OllamaService {
     const response = await supabase.functions.invoke('ollama-proxy', {
       body: {
         method: 'POST',
-        endpoint: '/chat',
+        endpoint: 'chat',
         body: {
           model,
           messages,

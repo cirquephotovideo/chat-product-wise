@@ -20,9 +20,14 @@ serve(async (req) => {
 
     const { method, endpoint, body: requestBody } = await req.json();
     
-    console.log(`Proxying ${method} request to: ${endpoint}`);
+    // Ensure endpoint doesn't start with / to avoid double slashes
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+    const fullUrl = `https://ollama.com/api/${cleanEndpoint}`;
+    
+    console.log(`Proxying ${method} request to: ${fullUrl}`);
+    console.log(`Request body:`, requestBody ? JSON.stringify(requestBody).substring(0, 200) : 'none');
 
-    const ollamaResponse = await fetch(`https://ollama.com/api${endpoint}`, {
+    const ollamaResponse = await fetch(fullUrl, {
       method,
       headers: {
         'Authorization': `Bearer ${OLLAMA_API_KEY}`,
